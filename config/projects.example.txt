@@ -1,0 +1,6 @@
+# One project per line:  name|folder|port
+# Easiest: add projects from the dashboard (Projects button).
+# Names must start with "proj-". Ports must be unique.
+#
+# proj-my-app|/home/you/git/my-app|7681
+# proj-my-api|/home/you/git/my-api|7682

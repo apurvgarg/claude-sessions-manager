@@ -1,0 +1,45 @@
+#!/usr/bin/env bash
+# claude-sessions [open|status|stop|stop-all]
+SELF="$(readlink -f "${BASH_SOURCE[0]}")"
+ROOT="$(dirname "$(dirname "$SELF")")"
+PORT="${CSM_PORT:-7700}"
+URL="http://127.0.0.1:$PORT"
+CONF="${CSM_CONFIG_DIR:-${XDG_CONFIG_HOME:-$HOME/.config}/claude-sessions-manager}"
+PFILE="$CONF/projects.txt"
+export PATH="$HOME/.local/bin:$PATH"
+export CSM_PORT="$PORT"
+
+projects() { [ -f "$PFILE" ] && grep -v '^[[:space:]]*#' "$PFILE" | grep '|'; true; }
+
+case "${1:-open}" in
+  open)
+    "$ROOT/bin/claude-sessions-ensure"
+    if ! ss -ltn | grep -q ":$PORT "; then
+      setsid nohup python3 "$ROOT/src/server.py" \
+        >"${TMPDIR:-/tmp}/claude-sessions.log" 2>&1 </dev/null &
+    fi
+    for _ in $(seq 1 40); do
+      curl -fs "$URL/api/status" >/dev/null 2>&1 && break
+      sleep 0.25
+    done
+    sleep 3   # let the ttyd terminals come up
+    xdg-open "$URL" >/dev/null 2>&1 || echo "Open $URL in your browser"
+    ;;
+  status)
+    if curl -fs "$URL/api/status" >/dev/null 2>&1; then echo "dashboard: up ($URL)"; else echo "dashboard: down"; fi
+    projects | while IFS='|' read -r n p port; do
+      if tmux has-session -t "=$n" 2>/dev/null; then s=running; else s=stopped; fi
+      printf '%-24s %-8s port %s\n' "$n" "$s" "$port"
+    done
+    ;;
+  stop|stop-all)
+    pkill -f "$ROOT/src/server.py" || true
+    projects | while IFS='|' read -r n p port; do
+      pkill -f "ttyd -p $port " || true
+      [ "$1" = stop-all ] && tmux kill-session -t "=$n" 2>/dev/null
+    done
+    echo "stopped dashboard and web terminals$([ "$1" = stop-all ] && echo ' and Claude sessions')"
+    ;;
+  *)
+    echo "usage: claude-sessions [open|status|stop|stop-all]"; exit 1 ;;
+esac

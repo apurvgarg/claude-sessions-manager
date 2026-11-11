@@ -1,0 +1,7 @@
+projects.txt
+*.bak
+*.bak*
+__pycache__/
+*.pyc
+.env
+*.log

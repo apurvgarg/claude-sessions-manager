@@ -1,0 +1,8 @@
+[Desktop Entry]
+Type=Application
+Name=Claude Sessions
+Comment=Start Claude tmux sessions and open the dashboard
+Exec=@BIN@/claude-sessions
+Icon=utilities-terminal
+Terminal=false
+Categories=Development;

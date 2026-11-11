@@ -1,0 +1,147 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>Claude Sessions</title>
+<style>
+ html,body{margin:0;height:100%;background:#111;color:#ddd;font:13px monospace}
+ body{display:flex;flex-direction:column}
+ #bar{display:flex;gap:8px;align-items:center;padding:6px 8px;background:#1b1b1b;border-bottom:1px solid #333}
+ #bar b{margin-right:auto}
+ button{background:#333;color:#fff;border:0;cursor:pointer;padding:4px 9px;border-radius:3px}
+ .go{background:#2a6}.warn{background:#b83}.bad{background:#c33}
+ #g{flex:1;min-height:0;display:flex;gap:6px;padding:6px}
+ .p{position:relative;flex:1 1 0;min-width:0;display:flex;flex-direction:column;border:1px solid #333}
+ .p.max{flex:5 1 0}.p.min{flex:0 0 34px}
+ h3{margin:0;padding:5px 6px;background:#222;display:flex;gap:6px;align-items:center}
+ h3 .n{margin-right:auto}
+ .d{font-size:11px;font-weight:normal}.on{color:#4c4}.off{color:#e55}
+ iframe{flex:1;border:0;width:100%;background:#000}
+ .dead{position:absolute;inset:32px 0 0 0;background:#000e;display:none;align-items:center;
+       justify-content:center;flex-direction:column;gap:10px}
+ .dead button{padding:10px 18px;font-size:14px}
+ .p.min iframe,.p.min button,.p.min .d,.p.min .dead{display:none!important}
+ .p.min h3{writing-mode:vertical-rl;height:100%;cursor:pointer}
+ #mgr{position:fixed;inset:0;background:#000b;display:none;align-items:center;justify-content:center;z-index:50}
+ #mgr .box{background:#1b1b1b;border:1px solid #444;border-radius:6px;padding:16px;width:min(720px,92vw);max-height:85vh;overflow:auto}
+ #mgr h4{margin:0 0 10px;font-size:15px}
+ #mgr table{width:100%;border-collapse:collapse;margin-bottom:14px}
+ #mgr td,#mgr th{padding:5px 6px;border-bottom:1px solid #333;text-align:left;word-break:break-all}
+ #mgr input{background:#000;color:#fff;border:1px solid #444;padding:7px;width:100%;box-sizing:border-box}
+ #mgr .f{display:grid;grid-template-columns:1fr 2fr auto;gap:8px}
+ #mgr .err{min-height:18px;margin:6px 0;color:#e55}
+</style>
+
+<div id="bar"><b>Claude Sessions</b>
+ <button id="b-reset">Reset layout</button>
+ <button id="b-mgr">&#9881; Projects</button>
+ <button id="b-start" class="go">&#9654; Start all</button>
+ <button id="b-stop" class="warn">&#9632; Stop all sessions</button>
+ <button id="b-quit" class="bad">&#9211; Quit app</button>
+</div>
+<div id="g"></div>
+
+<div id="mgr"><div class="box">
+ <h4>Manage projects</h4>
+ <table><thead><tr><th>Name</th><th>Folder</th><th>Port</th><th></th></tr></thead><tbody id="mrows"></tbody></table>
+ <h4>Add a project</h4>
+ <div class="f">
+  <input id="mn" placeholder="name (e.g. my-app)">
+  <input id="mp" placeholder="folder (e.g. ~/git/my-app)">
+  <button class="go" id="m-add">Add &amp; start</button>
+ </div>
+ <div class="err" id="merr"></div>
+ <button id="m-close">Close</button>
+</div></div>
+
+<script>
+const $=s=>document.querySelector(s), g=$('#g');
+const esc=s=>String(s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const post=(u,b)=>fetch(u,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(b||{})});
+let built=false, was={};
+
+async function act(a,n){ await post('/api/'+a+(n?'/'+encodeURIComponent(n):'')); setTimeout(poll,800); }
+
+function build(list){
+  g.innerHTML='';
+  list.forEach(s=>{
+    const n=esc(s.name);
+    g.insertAdjacentHTML('beforeend',`
+     <div class="p" id="p-${n}" data-n="${n}">
+      <h3><span class="n">${n}</span><span class="d off" id="d-${n}">stopped</span>
+       <button data-act="min" title="Collapse / expand">&#9662;</button>
+       <button data-act="max" title="Maximize">&#10530;</button>
+       <button data-act="reload" title="Reload this terminal">&#10227;</button>
+       <button data-act="stop" class="warn" title="Stop this session">&#9632;</button></h3>
+      <iframe id="f-${n}" src="http://127.0.0.1:${Number(s.port)}"></iframe>
+      <div class="dead" id="x-${n}"><div>Session is stopped</div>
+       <button data-act="start" class="go">&#9654; Start (continue)</button></div>
+     </div>`);
+  });
+  built=true;
+}
+
+g.addEventListener('click',e=>{
+  const p=e.target.closest('.p'); if(!p) return;
+  const n=p.dataset.n, b=e.target.closest('button');
+  if(!b){ if(p.classList.contains('min')) p.classList.remove('min'); return; }
+  const a=b.dataset.act;
+  if(a==='min'){ p.classList.remove('max'); p.classList.toggle('min'); }
+  else if(a==='max'){
+    const on=p.classList.contains('max');
+    document.querySelectorAll('.p').forEach(x=>x.classList.remove('max','min'));
+    if(!on) p.classList.add('max');
+  }
+  else if(a==='reload'){ const f=$('#f-'+n); f.src=f.src; }
+  else if(a==='stop'){ if(confirm(n+': stop this session? (the conversation stays on disk)')) act('stop',n); }
+  else if(a==='start'){ act('start',n); }
+});
+
+async function poll(){
+  let list; try{ list=await (await fetch('/api/status')).json(); }catch(e){ return; }
+  if(!built) build(list);
+  list.forEach(s=>{
+    const x=$('#x-'+s.name); if(!x) return;
+    x.style.display=s.alive?'none':'flex';
+    const d=$('#d-'+s.name); d.textContent=s.alive?'running':'stopped'; d.className='d '+(s.alive?'on':'off');
+    if(s.alive && was[s.name]===false){ const f=$('#f-'+s.name); f.src=f.src; }
+    was[s.name]=s.alive;
+  });
+}
+
+$('#b-reset').onclick=()=>document.querySelectorAll('.p').forEach(p=>p.classList.remove('max','min'));
+$('#b-start').onclick=()=>act('start');
+$('#b-stop').onclick=()=>{ if(confirm('Stop ALL Claude sessions?')) act('stop'); };
+$('#b-quit').onclick=async()=>{
+  if(!confirm('Quit the dashboard? Claude sessions keep running.')) return;
+  try{ await post('/api/quit'); }catch(e){}
+  document.body.innerHTML='<p style="padding:40px">App stopped. Run "claude-sessions" to start it again.</p>';
+};
+
+/* projects manager */
+async function loadMgr(){
+  const list=await (await fetch('/api/projects')).json();
+  const t=$('#mrows'); t.innerHTML='';
+  list.forEach(x=>{
+    const tr=document.createElement('tr');
+    tr.innerHTML='<td></td><td></td><td></td><td><button class="bad">Remove</button></td>';
+    tr.children[0].textContent=x.name; tr.children[1].textContent=x.path; tr.children[2].textContent=x.port;
+    tr.querySelector('button').onclick=async()=>{
+      if(!confirm(x.name+': remove from the list? Its tmux session will be stopped (the conversation stays on disk).')) return;
+      await post('/api/project-remove/'+encodeURIComponent(x.name)); location.reload();
+    };
+    t.appendChild(tr);
+  });
+}
+$('#b-mgr').onclick=()=>{ const e=$('#merr'); e.textContent=''; $('#mgr').style.display='flex'; loadMgr(); };
+$('#m-close').onclick=()=>{ $('#mgr').style.display='none'; };
+$('#mgr').onclick=e=>{ if(e.target.id==='mgr') $('#mgr').style.display='none'; };
+$('#m-add').onclick=async()=>{
+  const err=$('#merr'); err.style.color='#e55'; err.textContent='';
+  const r=await post('/api/project-add',{name:$('#mn').value,path:$('#mp').value});
+  const d=await r.json();
+  if(!r.ok){ err.textContent=d.error||'Error'; return; }
+  err.style.color='#4c4'; err.textContent='Added. Starting the session...';
+  setTimeout(()=>location.reload(),2500);
+};
+
+poll(); setInterval(poll,3000);
+</script>

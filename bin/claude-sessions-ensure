@@ -1,0 +1,24 @@
+#!/usr/bin/env bash
+# Start any missing tmux Claude sessions and their ttyd web terminals.
+# Usage: claude-sessions-ensure [project-name]
+CONF="${CSM_CONFIG_DIR:-${XDG_CONFIG_HOME:-$HOME/.config}/claude-sessions-manager}"
+PFILE="$CONF/projects.txt"
+export PATH="$HOME/.local/bin:$PATH"
+TTYD="$(command -v ttyd || true)"
+[ -f "$PFILE" ] || exit 0
+[ -n "$TTYD" ] || { echo "ttyd not found" >&2; exit 1; }
+
+while IFS='|' read -r name path port; do
+  [ -z "$name" ] && continue
+  case "$name" in \#*) continue ;; esac
+  [ -n "${1:-}" ] && [ "$1" != "$name" ] && continue
+
+  tmux has-session -t "=$name" 2>/dev/null || \
+    tmux new -d -s "$name" -x 200 -y 50 -c "$path" \
+      "bash -lc 'claude --continue || claude'"
+
+  ss -ltn | grep -q ":$port " || \
+    setsid nohup "$TTYD" -p "$port" -i lo -W tmux attach -t "=$name" \
+      </dev/null >/dev/null 2>&1 &
+done < "$PFILE"
+exit 0
