@@ -56,7 +56,18 @@
 const $=s=>document.querySelector(s), g=$('#g');
 const esc=s=>String(s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const post=(u,b)=>fetch(u,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(b||{})});
-let built=false, was={};
+let built=false, was={}, flap={};
+async function portUp(port){
+  try{ await fetch('http://127.0.0.1:'+port+'/',{mode:'no-cors',cache:'no-store'}); return true; }catch(e){ return false; }
+}
+async function loadFrame(name,port){
+  const f=$('#f-'+name);
+  for(let i=0;i<25;i++){
+    if(i===5) post('/api/start/'+encodeURIComponent(name));
+    if(await portUp(port)){ await new Promise(r=>setTimeout(r,800)); f.src='http://127.0.0.1:'+port+'/'; return; }
+    await new Promise(r=>setTimeout(r,1000));
+  }
+}
 
 async function act(a,n){ await post('/api/'+a+(n?'/'+encodeURIComponent(n):'')); setTimeout(poll,800); }
 
@@ -71,7 +82,7 @@ function build(list){
        <button data-act="max" title="Maximize">&#10530;</button>
        <button data-act="reload" title="Reload this terminal">&#10227;</button>
        <button data-act="stop" class="warn" title="Stop this session">&#9632;</button></h3>
-      <iframe id="f-${n}" src="http://127.0.0.1:${Number(s.port)}"></iframe>
+      <iframe id="f-${n}" src="about:blank"></iframe>
       <div class="dead" id="x-${n}"><div>Session is stopped</div>
        <button data-act="start" class="go">&#9654; Start (continue)</button></div>
      </div>`);
@@ -102,8 +113,14 @@ async function poll(){
     const x=$('#x-'+s.name); if(!x) return;
     x.style.display=s.alive?'none':'flex';
     const d=$('#d-'+s.name); d.textContent=s.alive?'running':'stopped'; d.className='d '+(s.alive?'on':'off');
-    if(s.alive && was[s.name]===false){ const f=$('#f-'+s.name); f.src=f.src; }
-    was[s.name]=s.alive;
+    const prev=was[s.name];
+    if(s.alive){
+      flap[s.name]=0;
+      if(prev!==true){ was[s.name]=true; loadFrame(s.name,s.port); }
+    } else {
+      flap[s.name]=(flap[s.name]||0)+1;
+      if(flap[s.name]>=2 && prev!==false){ was[s.name]=false; $('#f-'+s.name).src='about:blank'; }
+    }
   });
 }
 
