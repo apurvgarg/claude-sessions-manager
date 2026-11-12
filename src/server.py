@@ -150,8 +150,11 @@ class H(BaseHTTPRequestHandler):
         if act == "start":
             subprocess.run([ENSURE] + ([name] if name in names else []))
         elif act == "stop":
-            for n in ([name] if name in names else names):
+            for n, _, port in projects():
+                if name in names and n != name:
+                    continue
                 tmux("kill-session", "-t", "=" + n)
+                kill_ttyd(port)
         elif act == "quit":
             for _, _, port in projects():
                 kill_ttyd(port)
